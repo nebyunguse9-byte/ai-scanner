@@ -1,56 +1,52 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { supabase } from "@/lib/supabase";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export async function POST(req) {
   try {
-    const { image } = await req.json();
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+    const { image, userId } = await req.json();
 
-    // Models listed in order of priority
-    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash-002", "gemini-1.5-pro"];
-    let result = null;
-    let lastError = null;
-
-    const prompt = `
-      Identify the main object in this image precisely.
-      
-      Return ONLY a JSON object in this format:
-      {
-        "title": "Exact object name",
-        "summary": "2-sentence overview",
-        "facts": ["Key fact 1", "Key fact 2", "Key fact 3"]
-      }
-    `;
-
-    // Try each model until one succeeds
-    for (const modelName of modelsToTry) {
-      try {
-        const model = genAI.getGenerativeModel({ 
-          model: modelName,
-          generationConfig: { responseMimeType: "application/json" }
-        });
-
-        result = await model.generateContent([
-          prompt,
-          { inlineData: { data: base64Data, mimeType: "image/jpeg" } }
-        ]);
-
-        if (result) break; // Success, break out of loop
-      } catch (err) {
-        lastError = err;
-        console.warn(`Model ${modelName} failed, attempting next model...`);
-      }
+    if (!userId) {
+      return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
     }
 
-    if (!result) {
-      throw lastError || new Error("All AI models were unavailable.");
+    const { data: profile, error: fetchErr } = await supabase
+      .from("profiles")
+      .select("scans_left")
+      .eq("id", userId)
+      .single();
+
+    if (fetchErr || !profile) {
+      return NextResponse.json({ error: "User account not found." }, { status: 404 });
     }
 
-    const output = JSON.parse(result.response.text());
-    return Response.json(output);
-  } catch (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+    if (profile.scans_left <= 0) {
+      return NextResponse.json({ 
+        error: "You have finished your testing quota. Thank you!" 
+      }, { status: 403 });
+    }
+
+    const base64Data = image.split(",")[1];
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const result = await model.generateContent([
+      "Analyze this image and return JSON: { \"title\": string, \"summary\": string, \"facts\": string[] }",
+      { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+    ]);
+
+    const responseText = result.response.text().replace(/```json|```/g, "").trim();
+    const parsedData = JSON.parse(responseText);
+
+    await supabase
+      .from("profiles")
+      .update({ scans_left: profile.scans_left - 1 })
+      .eq("id", userId);
+
+    return NextResponse.json({ ...parsedData, scans_left: profile.scans_left - 1 });
+
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
