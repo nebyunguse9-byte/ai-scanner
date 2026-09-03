@@ -31,7 +31,7 @@ export default function Home() {
   }, []);
 
   const fetchScansLeft = async (userId) => {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("profiles")
       .select("scans_left")
       .eq("id", userId)
