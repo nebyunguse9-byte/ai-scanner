@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "placeholder");
 
 export async function POST(req) {
   try {
@@ -13,6 +11,16 @@ export async function POST(req) {
     if (!userId) {
       return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
     }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      return NextResponse.json({ error: "Supabase environment variables missing." }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const { data: profile, error: fetchErr } = await supabase
       .from("profiles")
@@ -31,6 +39,7 @@ export async function POST(req) {
     }
 
     const base64Data = image.split(",")[1];
+    const genAI = new GoogleGenerativeAI(geminiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await model.generateContent([
