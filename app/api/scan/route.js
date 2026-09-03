@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { supabase } from "@/lib/supabase";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+export const dynamic = "force-dynamic";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "placeholder");
 
 export async function POST(req) {
   try {
